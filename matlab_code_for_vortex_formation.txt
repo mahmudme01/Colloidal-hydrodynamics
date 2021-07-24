@@ -1,0 +1,161 @@
+%Created by Rony, Date- 5/12/2020
+%This code calculates velocity of all particles based on hydrodynamic interaction
+
+
+%% Initialize program
+
+clear all;   %clears variables
+warning off
+
+
+%% Calculate force on the particle
+
+a = 2.0e-6;   						%particle radius
+g = 9.81;   						%gravity accelaration
+visc = 8.9e-4;   					%visocity of water
+mu = 8.9e-4;						%viscosity of water
+densityliq = 997;   					%density liquid
+densitysol = 1220;   					%density solid
+deldens = (densitysol-densityliq);   			%density difference
+
+F = (4/3)*pi*a^3*g*deldens;   				%force on the particle
+
+%% Orbital variables
+
+n = 20; 						%rotational speed (rpm)
+
+
+%% simulation parameters
+
+rlength = 180e-6;   					%simulation space in radius, um
+rotstep = -6;   					%rotation step, degrees
+rotend = -(360+rotstep);   				%end rotation 
+rotstart = 0;   					%start rotation
+timestep = 60*abs(rotstep)/(n*360);
+
+
+%% Locate center position of random circles that don't overlap
+centrx1=dlmread('centrx.txt');				%non-overlap particles coordinate generated from another code  
+centry1=dlmread('centry.txt');
+centrz1=dlmread('centrz.txt');
+
+centrx=centrx1(:,end);					%initial distribution
+centry=centry1(:,end);
+centrz=centrz1(:,end);
+ 
+
+centrx_plot(:,1)= centrx;				%after each rotation, particles coordinates are saved here				
+centry_plot(:,1)= centry;
+centrz_plot(:,1)= centrz;
+
+for run=1:1:600						%End of value of run will save that amount of image in stack
+tic;
+
+k=0;
+for t = rotstart:rotstep:rotend				%This loop runs within one rotation
+    k=k+1;
+    vsedtheta=degtorad(t-90);				%gravity rotates clockwise
+    
+    %hardsphere model
+    
+    centrx1=zeros(1,size(centrx,1))';
+    centry1=zeros(1,size(centrx,1))';
+    centrz1=zeros(1,size(centrx,1))';
+    
+    parfor p = 1:1:size(centrx,1)
+        
+        centrx1(p)=centrx(p);
+        centry1(p)=centry(p);
+        centrz1(p)=centrz(p);
+        
+            x = centrx-centrx1(p);     
+            y = centry-centry1(p);   
+            z = centrz-centrz1(p);
+             
+            r = sqrt(x.^2+y.^2+z.^2);
+             [B,I] = sort(r,'ascend'); 			% sort distances of all particles from particle p in ascending order
+                                       			% I is the original index location 
+
+             mmm=find(r(I)<3*a); 			%
+             mmm(1)=[]; 				% first value is zero, discard that index
+    
+             if isempty(mmm)
+                 ;
+             else
+                for(j=1:1:size(mmm))
+                mm=I(mmm(j));
+                
+                if((r(mm))<2*a)
+
+                  centrx1(p) = centrx1(p) + (0.5-a/r(mm))*x(mm);
+                  centry1(p) = centry1(p) + (0.5-a/r(mm))*y(mm);
+                  centrz1(p) = centrz1(p) + (0.5-a/r(mm))*z(mm);
+                  
+                end
+                
+                if (centrz1(p)<a)
+                centrz1(p)=a;
+                end
+                
+                x = centrx-centrx1(p);     
+                y = centry-centry1(p);   
+                z = centrz-centrz1(p);
+             
+                r = sqrt(x.^2+y.^2+z.^2);
+                end
+                %clear mm
+             end
+             %clear B I mmm
+    
+    end
+    centrx = centrx1;
+    centry = centry1;
+    centrz = centrz1;
+    clear centrx1 centry1 centrz1
+    clear x y z
+    
+           r1 = sqrt(centrx.^2+centry.^2);	%boundary particles are kept within the boundary using hardsphere model
+           ee=find(r1>(rlength-a));
+           centrx(ee)=(rlength-a).*centrx(ee)./r1(ee);
+           centry(ee)=(rlength-a).*centry(ee)./r1(ee);
+           clear ee  
+    
+    %computation
+    
+    vxgrid=zeros(1,size(centrx,1))';
+    vygrid=zeros(1,size(centrx,1))';
+    vzgrid=zeros(1,size(centrx,1))';
+    
+    parfor p = 1:1:size(centrx,1)		%velocity measurement of all particles    
+
+            x = centrx(p)-centrx;     
+            y = centry(p)-centry;   
+            z = centrz(p)-centrz;
+                         
+            [vx,vy,vz] = vsedfield(x,y,z,centrx,centry,centrz,rlength,a,F,vsedtheta);  %pairwise velocity measurement for a single particle
+            
+            vxgrid(p) = sum(vx)+vxgrid(p);	%sum all measurements to get velocity of particle p
+            vygrid(p) = sum(vy)+vygrid(p);
+            vzgrid(p) = sum(vz)+vzgrid(p);  
+            
+    end
+        
+       centrx = timestep*vxgrid+centrx;		%update new location based on new displacement
+       centry = timestep*vygrid+centry;
+       centrz = timestep*vzgrid+centrz;
+             
+end
+
+centrx_plot(:,run+1)= centrx;			%after each rotation save the coordinates in new variables
+centry_plot(:,run+1)= centry;
+centrz_plot(:,run+1)= centrz;
+
+dlmwrite('centrxx3.txt',centrx_plot);		%after each rotation save the coordinates of the particles in a file
+dlmwrite('centryy3.txt',centry_plot);
+dlmwrite('centrzz3.txt',centrz_plot);
+
+toc;
+
+end
+
+matlabpool close
